@@ -691,47 +691,6 @@ for i, _ in pairs(library.Settings.theme) do
 		objects[tostring(i)]["ImageColor3"] = {}
 	end
 end
--- Signal functions
-do
-	library.Signal.__index = library.Signal
-	library.Signal.ClassName = "Signal"
-
-	function library.Signal.new()
-		local self = setmetatable({}, library.Signal)
-		self._bindableEvent = Instance.new("BindableEvent")
-		self._argData = nil
-		self._argCount = nil
-		return self
-	end
-	function library.Signal:Fire(...)
-		self._argData = { ... }
-		self._argCount = select("#", ...)
-		self._bindableEvent:Fire()
-		self._argData = nil
-		self._argCount = nil
-	end
-	function library.Signal:Connect(handler)
-		if not (type(handler) == "function") then
-			error(("connect(%s)"):format(typeof(handler)), 2)
-		end
-		return self._bindableEvent.Event:Connect(function()
-			handler(unpack(self._argData, 1, self._argCount))
-		end)
-	end
-	function library.Signal:Wait()
-		self._bindableEvent.Event:Wait()
-		assert(self._argData, "Missing arg data, likely due to :TweenSize/Position corrupting threadrefs.")
-		return unpack(self._argData, 1, self._argCount)
-	end
-	function library.Signal:Destroy()
-		if self._bindableEvent then
-			self._bindableEvent:Destroy()
-			self._bindableEvent = nil
-		end
-		self._argData = nil
-		self._argCount = nil
-	end
-end
 -- Functions
 do
 	function library.Functions.mergeTable(t1: table, t2: table): table
@@ -868,36 +827,18 @@ do
 			task.wait(delay)
 		end
 	end
+	function library.Functions.GetTextSize(Text: string, TextSize: number, Font: EnumItem): Vector2
+		return game:GetService("TextService"):GetTextSize(Text:gsub("<[^<>]->", ""), TextSize, Font, Vector2.new(math.huge, TextSize))
+	end
 	function library.Functions.DraggingEnabled(instance: Instance, parent: Instance)
 		parent = parent or instance
-		local dragging = false
-		local dragInput, mousePos, framePos
-		instance.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 then
-				dragging = true
-				mousePos = input.Position
-				framePos = parent.Position
-				input.Changed:Connect(function()
-					if input.UserInputState == Enum.UserInputState.End then
-						dragging = false
-					end
-				end)
-			end
-		end)
-		instance.InputChanged:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseMovement then
-				dragInput = input
-			end
-		end)
-		instance.InputChanged:Connect(function(input)
-			if input == dragInput and dragging then
-				local delta = input.Position - mousePos
-				parent.Position = UDim2.new(
-					framePos.X.Scale,
-					framePos.X.Offset + delta.X,
-					framePos.Y.Scale,
-					framePos.Y.Offset + delta.Y
-				)
+		instance.InputBegan:Connect(function(input, processed)
+			if not processed and input.UserInputType == Enum.UserInputType.MouseButton1 then
+				local mousePos, framePos = input.Position, parent.Position
+				repeat task.wait()
+					local delta = Vector2.new(mouse.X - mousePos.X, mouse.Y - mousePos.Y)
+					library.Functions.Tween(parent, { Position = UDim2.new(framePos.X.Scale, framePos.X.Offset + delta.X, framePos.Y.Scale, framePos.Y.Offset + delta.Y) }, 0.1)
+				until not game:GetService("UserInputService"):IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
 			end
 		end)
 	end
@@ -1510,7 +1451,7 @@ do
 	page.__index = page
 	section.__index = section
 
-	function library.new(): table
+	function library:new(): table
 		repeat
 			task.wait()
 		until game:IsLoaded()
@@ -2836,7 +2777,7 @@ do
 			Text = "<b>" .. (library.Functions.findByIndex(config, "Title") or "Button") .. "</b>",
 			RichText = true,
 			TextColor3 = library.Settings.theme.TextColor,
-			TextSize = 11,
+			TextSize = 12,
 			AutoButtonColor = false,
 			Size = UDim2.new(1, 0, 0, 30),
 		}, {
@@ -2891,12 +2832,13 @@ do
 		}, {
 			library.Functions.newInstance("StringValue", {
 				Name = "SearchValue",
-				Value = "",
+				Value = library.Functions.findByIndex(config, "Text") or "Text Label",
 			}),
 		})
 
-		for i = 1, (library.Functions.findByIndex(config, "Text") or "Text Label"):len() do
-			label.Text = (library.Functions.findByIndex(config, "Text") or "Text Label"):sub(1, i)
+		local text = (library.Functions.findByIndex(config, "Text") and library.Functions.findByIndex(config, "Text") ~= "" and library.Functions.findByIndex(config, "Text")) or "Text Label"
+		for i = 1, text:len() do
+			label.Text = text:sub(1, i)
 			label.Size = UDim2.new(1, 0, 0, label.TextBounds.Y)
 		end
 
@@ -2908,6 +2850,130 @@ do
 
 		return label
 	end
+	function section:addDualLabel(config: table): Instance
+		config = config or {}
+		local titleText = ((library.Functions.findByIndex(config, "Title") and library.Functions.findByIndex(config, "Title") ~= "" and library.Functions.findByIndex(config, "Title")) or "<b>Title</b>")..":"
+		local descText = (library.Functions.findByIndex(config, "Description") and library.Functions.findByIndex(config, "Description") ~= "" and library.Functions.findByIndex(config, "Description")) or "Description"
+		local titleSize = library.Functions.GetTextSize(titleText, 12, Enum.Font.SciFi)
+		local descSize = library.Functions.GetTextSize(descText, 12, Enum.Font.SciFi)
+
+		local frame = library.Functions.newInstance("Frame", {
+			Name = "DualLabel_Element",
+			Parent = (library.Functions.findByIndex(config, "section") or 1) > #self.container and self.container[#self.container] or self.container[library.Functions.findByIndex(config, "section") or 1],
+			BackgroundColor3 = library.Settings.theme.Background,
+			Size = UDim2.new(1, 0, 0, 20)
+		}, {
+			library.Functions.newInstance("UICorner", {
+				CornerRadius = UDim.new(0, 5),
+			}),
+			library.Functions.newInstance("UIPadding", {
+				PaddingLeft = UDim.new(0, 10),
+				PaddingRight = UDim.new(0, 10),
+			}),
+			library.Functions.newInstance("TextLabel", {
+				Name = "Title",
+				BackgroundTransparency = 1,
+				Size = UDim2.new(0, titleSize.X, 1, 0),
+				Text = titleText,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Center,
+				Font = Enum.Font.SciFi,
+				TextColor3 = library.Settings.theme.TextColor,
+				ClipsDescendants = true,
+				RichText = true,
+			}),
+			library.Functions.newInstance("TextLabel", {
+				Name = "Description",
+				BackgroundTransparency = 1,
+				Position = UDim2.new(1, 0, 0, 0),
+				AnchorPoint = Vector2.new(1, 0),
+				Text = descText,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				TextYAlignment = Enum.TextYAlignment.Center,
+				Font = Enum.Font.SciFi,
+				TextColor3 = library.Settings.theme.LightContrast,
+				ClipsDescendants = true,
+				RichText = true,
+			}),
+			library.Functions.newInstance("StringValue", {
+				Name = "SearchValue",
+				Value = titleText:gsub("<[^<>]->", ""),
+			}),
+		})
+		frame.Description.Size = UDim2.new(0, math.min(descSize.X, frame.AbsoluteSize.X - titleSize.X - 5), 1, 0)
+
+		table.insert(self.modules, frame)
+
+		return frame
+	end
+	function section:addClipboardLabel(config: table): Instance
+		config = config or {}
+
+		local ClipboardLabel = library.Functions.newInstance("Frame", {
+			Name = "ClipboardLabel_Element",
+			Parent = (library.Functions.findByIndex(config, "section") or 1) > #self.container and self.container[#self.container] or self.container[library.Functions.findByIndex(config, "section") or 1],
+			BackgroundColor3 = library.Settings.theme.Background,
+			Size = UDim2.new(1, 0, 0, 30)
+		}, {
+			library.Functions.newInstance("UICorner", {
+				CornerRadius = UDim.new(0, 5),
+			}),
+			library.Functions.newInstance("UIPadding", {
+				PaddingLeft = UDim.new(0, 10),
+				PaddingRight = UDim.new(0, 10),
+			}),
+			library.Functions.newInstance("TextLabel", {
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, -30, 1, 0),
+				Text = (library.Functions.findByIndex(config, "Text") and library.Functions.findByIndex(config, "Text") ~= "" and library.Functions.findByIndex(config, "Text")) or "<b>Clipboard Label</b>",
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Center,
+				Font = Enum.Font.SciFi,
+				TextColor3 = library.Settings.theme.LightContrast,
+				ClipsDescendants = true,
+				RichText = true,
+			}),
+			library.Functions.newInstance("ImageButton", {
+				BackgroundColor3 = library.Settings.theme.Contrast,
+				AutoButtonColor = false,
+				Size = UDim2.new(0, 25, 0, 25),
+				Position = UDim2.new(1, 0, 0.5, 0),
+				AnchorPoint = Vector2.new(1, 0.5),
+			}, {
+				library.Functions.newInstance("UICorner", {
+					CornerRadius = UDim.new(0, 5),
+				}),
+				library.Functions.newInstance("ImageLabel", {
+					Image = library.Icons.copy,
+					ImageColor3 = library.Settings.theme.TextColor,
+					BackgroundTransparency = 1,
+					Size = UDim2.new(0, 15, 0, 15),
+					Position = UDim2.new(0.5, 0, 0.5, 0),
+					AnchorPoint = Vector2.new(0.5, 0.5),
+				}),
+			}),
+			library.Functions.newInstance("StringValue", {
+				Name = "SearchValue",
+				Value = ((library.Functions.findByIndex(config, "Text") and library.Functions.findByIndex(config, "Text") ~= "" and library.Functions.findByIndex(config, "Text")) or "<b>Clipboard Label</b>"):gsub("<[^<>]->", ""),
+			}),
+		})
+		table.insert(self.modules, ClipboardLabel)
+		
+		ClipboardLabel.ImageButton.MouseButton1Click:connect(function()
+			library.Functions.Ripple(ClipboardLabel.ImageButton, 0.5)
+			if setclipboard then
+				setclipboard(ClipboardLabel.TextLabel.Text:gsub("<[^<>]->", ""))
+			end
+		end)
+
+		return ClipboardLabel
+	end
+	-- TextBox
+
+	--
 	function section:addSlider(config: table): Instance
 		config = config or {}
 		local slider = library.Functions.newInstance("Frame", {
@@ -2921,17 +2987,7 @@ do
 			library.Functions.newInstance("TextLabel", {
 				Name = "Title",
 				BackgroundTransparency = 1,
-				Size = UDim2.new(
-					0,
-					game:GetService("TextService"):GetTextSize(
-						library.Functions.findByIndex(config, "Title") or "Slider",
-						12,
-						Enum.Font.SciFi,
-						Vector2.new(math.huge, 14)
-					).X + 5,
-					0,
-					14
-				),
+				Size = UDim2.new(0, game:GetService("TextService"):GetTextSize(library.Functions.findByIndex(config, "Title") or "Slider", 12, Enum.Font.SciFi, Vector2.new(math.huge, 12)).X + 5, 0, 12),
 				Font = Enum.Font.SciFi,
 				RichText = true,
 				Text = "<b>" .. (library.Functions.findByIndex(config, "Title") or "Slider") .. "</b>",
@@ -2942,19 +2998,7 @@ do
 			library.Functions.newInstance("TextLabel", {
 				Name = "Count",
 				BackgroundTransparency = 1,
-				Size = UDim2.new(
-					0,
-					game:GetService("TextService"):GetTextSize(
-						library.Functions.findByIndex(config, "Default")
-							or library.Functions.findByIndex(config, "Min")
-							or 0,
-						12,
-						Enum.Font.SciFi,
-						Vector2.new(math.huge, 14)
-					).X + 5,
-					0,
-					14
-				),
+				Size = UDim2.new(0, game:GetService("TextService"):GetTextSize(library.Functions.findByIndex(config, "Default") or library.Functions.findByIndex(config, "Min") or 0, 12, Enum.Font.SciFi,Vector2.new(math.huge, 12)).X + 5, 0, 12),
 				AnchorPoint = Vector2.new(1, 0),
 				Position = UDim2.new(1, 0, 0, 0),
 				Font = Enum.Font.SciFi,
