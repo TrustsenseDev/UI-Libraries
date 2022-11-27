@@ -4564,10 +4564,13 @@ function library:init()
         self.watermark = {
             objects = {};
             text = {
-                {'Premier Hub', true},
-                {'Shindo Life', true},
+                {self.cheatname, true},
+                {("%s (user id %s)"):format(game.Players.LocalPlayer.Name, tostring(game.Players.LocalPlayer.UserId)), true},
+                {self.gamename, true},
                 {'0 fps', true},
-                {'0ms', true}
+                {'0ms', true},
+                {'00:00:00', true},
+                {'M, D, Y', true},
             };
             lock = 'custom';
             position = newUDim2(0,0,0,0);
